@@ -1,0 +1,45 @@
+# Sources dockerisées : remplacent les VMs web01 et dc01
+services:
+  web01:
+    build: ./docker/web01
+    image: iset/web01:1.0
+    container_name: web01
+    hostname: web01
+    ports:
+      - "8080:80"     # site Web  -> http://192.168.100.30:8080
+      - "2222:22"     # SSH       -> ssh -p 2222 ...@192.168.100.30
+    volumes:
+      - web01-logs:/var/log
+    restart: unless-stopped
+    networks: [bigdata]
+
+  filebeat-web01:
+    image: docker.elastic.co/beats/filebeat:8.19.21
+    container_name: filebeat-web01
+    hostname: web01                  # les événements portent le nom "web01"
+    user: root                       # nécessaire pour lire les logs de Nginx
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./docker/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - web01-logs:/var/log/web01:ro
+    depends_on: [logstash, web01]
+    mem_limit: 256m
+    restart: unless-stopped
+    networks: [bigdata]
+
+  dc01-sim:
+    image: python:3.12-slim
+    container_name: dc01-sim
+    hostname: dc01
+    command: ["python", "-u", "/app/sim.py", "fond"]
+    environment:
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5046"
+    volumes:
+      - ./docker/dc01-sim:/app:ro
+    depends_on: [logstash]
+    restart: unless-stopped
+    networks: [bigdata]
+
+volumes:
+  web01-logs:

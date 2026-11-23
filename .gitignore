@@ -2,4 +2,3 @@ backup/
 *.log
 *.pyc
 __pycache__/
-.env

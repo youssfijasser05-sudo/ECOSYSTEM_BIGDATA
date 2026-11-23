@@ -73,3 +73,26 @@ Kibana : http://192.168.100.30:5601
 ## Limites
 
 Maquette de laboratoire : un seul nœud par service, pas de TLS, sécurité Elasticsearch désactivée, comptes de test fictifs. Le contrôleur de domaine Windows (Active Directory) ne peut pas être conteneurisé sous Linux : les deux sources restent des VMs, leurs configurations sont dans `sources/`.
+
+## Sources dockerisées (sans VM)
+
+Les deux VMs sources sont remplacées par des conteneurs, définis dans `docker-compose.sources.yml` (chargé automatiquement grâce au fichier `.env`) :
+
+| Conteneur | Remplace | Rôle |
+|---|---|---|
+| `web01` | VM web01 | Ubuntu 24.04 + Nginx + SSH + rsyslog (image construite depuis `docker/web01/`) |
+| `filebeat-web01` | Filebeat de web01 | Lit les logs de web01 (volume partagé) et les envoie à Logstash :5044 |
+| `dc01-sim` | VM dc01 (Windows AD) | Simulateur Python : événements au format Windows (4768, 4624, 4771, 4740, 4767) vers Logstash :5046 |
+
+Active Directory ne peut pas tourner dans Docker sous Linux : `dc01-sim` **simule** ses événements de sécurité, avec les mêmes champs que Winlogbeat.
+
+Tests :
+
+```bash
+curl http://localhost:8080                                     # accès Web (T1)
+ssh -p 2222 utilisateur-fictif@localhost                       # échec SSH (T3)
+docker exec dc01-sim python /app/sim.py echec bob.test 1       # échec AD (T4)
+docker exec dc01-sim python /app/sim.py succes alice.test      # succès AD (T5)
+docker exec dc01-sim python /app/sim.py brute bob.test         # brute force + verrouillage (R1, R4)
+docker exec dc01-sim python /app/sim.py deverrouiller bob.test # déverrouillage
+```
