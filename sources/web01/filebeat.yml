@@ -1,0 +1,24 @@
+# Filebeat 8.19.21 sur web01 (/etc/filebeat/filebeat.yml)
+filebeat.inputs:
+  - type: filestream
+    id: nginx-access
+    paths: [/var/log/nginx/access.log]
+    fields: { log_type: nginx_access }
+  - type: filestream
+    id: nginx-error
+    paths: [/var/log/nginx/error.log]
+    fields: { log_type: nginx_error }
+  - type: filestream
+    id: auth
+    paths: [/var/log/auth.log]
+    fields: { log_type: auth }
+  - type: filestream
+    id: syslog
+    paths: [/var/log/syslog]
+    include_lines: ['(?i)error', '(?i)fail', '(?i)critical', '(?i)denied']
+    fields: { log_type: syslog }
+
+output.logstash:
+  hosts: ["192.168.100.30:5044"]
+
+logging.level: info

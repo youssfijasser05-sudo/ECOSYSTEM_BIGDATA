@@ -1,0 +1,117 @@
+services:
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: kafka
+    hostname: kafka
+    environment:
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [bigdata]
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.19.21
+    container_name: logstash
+    environment:
+      LS_JAVA_OPTS: "-Xms512m -Xmx512m"
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports: ["5044:5044", "5045:5045"]
+    depends_on: [kafka]
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [bigdata]
+
+  # ---------------- HDFS : stockage principal (Parquet) ----------------
+  namenode:
+    image: apache/hadoop:3.4.1
+    container_name: namenode
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    env_file: [./hadoop.env]
+    environment:
+      ENSURE_NAMENODE_DIR: "/tmp/hdfs/name"     # formatage automatique au 1er démarrage
+      HADOOP_HEAPSIZE_MAX: "256m"
+    ports: ["9870:9870"]                         # interface Web HDFS
+    mem_limit: 768m
+    restart: unless-stopped
+    networks: [bigdata]
+
+  datanode:
+    image: apache/hadoop:3.4.1
+    container_name: datanode
+    hostname: datanode
+    command: ["hdfs", "datanode"]
+    env_file: [./hadoop.env]
+    environment:
+      HADOOP_HEAPSIZE_MAX: "256m"
+    depends_on: [namenode]
+    mem_limit: 768m
+    restart: unless-stopped
+    networks: [bigdata]
+
+  # ---------------- Elasticsearch + Kibana : indexation et visualisation ----------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.21
+    container_name: elasticsearch
+    environment:
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"           # labo isolé (limite documentée)
+      ES_JAVA_OPTS: "-Xms768m -Xmx768m"
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    volumes: [es-data:/usr/share/elasticsearch/data]
+    ports: ["127.0.0.1:9200:9200"]               # accessible SEULEMENT depuis bigdata01 lui-même
+    mem_limit: 1536m
+    restart: unless-stopped
+    networks: [bigdata]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.21
+    container_name: kibana
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      I18N_LOCALE: "fr-FR"
+      NODE_OPTIONS: "--max-old-space-size=512"
+    ports: ["5601:5601"]
+    depends_on: [elasticsearch]
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [bigdata]
+
+  # ---------------- Spark Structured Streaming ----------------
+  spark:
+    image: apache/spark:3.5.7
+    container_name: spark
+    hostname: spark
+    command: >
+      /opt/spark/bin/spark-submit --master local[2] --driver-memory 1g
+      --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.hadoop.dfs.replication=1
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.7
+      /opt/spark-app/detection.py
+    volumes: ["./spark/app:/opt/spark-app:ro"]
+    ports: ["4040:4040"]                         # interface Web Spark
+    depends_on: [kafka, namenode, datanode, elasticsearch]
+    mem_limit: 1536m
+    restart: unless-stopped
+    networks: [bigdata]
+
+volumes:
+  es-data:
+
+networks:
+  bigdata:
+    name: bigdata
